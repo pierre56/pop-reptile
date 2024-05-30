@@ -1,0 +1,80 @@
+{
+  "genre":"M",
+  "label": "Passage",
+  "label_list": "Passages",
+  "display_properties": [
+    "observers",
+    "id_dataset",
+    "num_passage",
+    "visit_date_min",
+    "Heure_debut",
+    "Heure_fin",
+    "meteo",
+    "vent",
+    "comments"
+  ],
+  "display_list": [
+    "num_passage",
+    "visit_date_min",
+    "observers",
+    "nb_observations"
+  ],
+  "keep": [
+    "observers",
+    "visit_date_min",
+    "Heure_debut",
+    "Heure_fin",
+    "meteo",
+    "vent",
+    "comments"
+  ],
+  "specific": {
+    "num_passage": {
+      "type_widget": "number",
+      "attribut_label": "Numéro de passage",
+      "required": true,
+      "min": 1,
+      "max":6,
+      "value": 1
+    },
+    "id_base_site": {
+      "type_widget": "site",
+      "required": false,
+      "attribut_label": "Transect"
+    },
+    "Heure_debut": {
+      "type_widget": "time",
+      "attribut_label": "Heure de début",
+      "required": true
+    },
+    "Heure_fin": {
+      "type_widget": "time",
+      "attribut_label": "Heure de fin",
+      "required": true
+    },
+    "meteo": {
+      "type_widget": "select",
+      "required": false,
+      "attribut_label": "Météo",
+      "values": ["Ensoleillé", "Belles éclaircies", "Nuageux prédominant", "Très nuageux", "Orageux", "Pluvieux", "Ciel voilé"]
+    },  
+    "vent": {
+      "type_widget": "select",
+      "required": false,
+      "attribut_label": "Vent",
+      "values": ["Absence de vent", "Vent faible", "Vent fort"]
+    },
+    "comments": {
+      "type_widget": "textarea",
+      "attribut_label": "Commentaire"
+    },
+    "visit_date_min": {
+      "type_widget": "date",
+      "attribut_label": "Date du passage",
+      "required": true
+    },
+    "nb_observations": {
+      "attribut_label": "Nb. d'observations"
+    }
+  }
+}
