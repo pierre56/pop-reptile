@@ -5,25 +5,62 @@
 DROP  VIEW IF EXISTS gn_monitoring.v_export_popreptile_standard;
 
 CREATE OR REPLACE VIEW gn_monitoring.v_export_popreptile_standard AS 
-WITH site_protege AS (
-   SELECT 
-        csa_1.id_base_site,
-        string_agg(DISTINCT ((la.area_name::text || '('::text) || bat.type_code::text) || ')'::text, ', '::text) AS sites_proteges
-   FROM ref_geo.l_areas la
-   JOIN ref_geo.bib_areas_types bat ON la.id_type = bat.id_type
-   JOIN gn_monitoring.cor_site_area csa_1 ON csa_1.id_area = la.id_area
-   WHERE bat.type_code::text = ANY (ARRAY[
-   		'ZNIEFF1'::character varying, 
-   		'ZPS'::character varying, 
-   		'ZCS'::character varying, 
-   		'SIC'::character varying, 
-   		'RNCFS'::character varying, 
-   		'RNR'::character varying, 
-   		'RNN'::character varying, 
-   		'ZC'::character varying]::text[])
-   GROUP BY csa_1.id_base_site)
+WITH obs AS
+(SELECT
+    id_base_visit,
+    array_agg(r.id_role) AS ids_observers,
+    string_agg(concat(r.nom_role, ' ', r.prenom_role), ' ; ') AS observers,
+    string_agg(DISTINCT org.nom_organisme::text, ', ') AS organismes_rattaches
+FROM gn_monitoring.cor_visit_observer cvo
+JOIN utilisateurs.t_roles r USING (id_role)
+JOIN utilisateurs.bib_organismes org USING (id_organisme)
+GROUP BY id_base_visit),
+com AS
+(SELECT
+    csa.id_base_site,
+    la_com.area_name AS commune
+FROM gn_monitoring.cor_site_area csa
+JOIN ref_geo.l_areas la_com ON csa.id_area = la_com.id_area
+JOIN ref_geo.bib_areas_types bat_com ON bat_com.id_type = la_com.id_type
+WHERE bat_com.type_code = 'COM'
+),
+dep AS
+(SELECT
+    csa.id_base_site,
+    la_dep.area_name AS departement,
+    la_dep.area_code AS code_dep
+FROM gn_monitoring.cor_site_area csa
+JOIN ref_geo.l_areas la_dep ON csa.id_area = la_dep.id_area
+LEFT JOIN ref_geo.bib_areas_types bat_dep ON bat_dep.id_type = la_dep.id_type
+WHERE bat_dep.type_code = 'DEP'),
+zonages AS
+(SELECT
+    csa.id_base_site,
+    string_agg(DISTINCT ((la.area_name::text || '(') ||bat.type_code::text) || ')', ', ') AS sites_proteges
+FROM ref_geo.l_areas la
+JOIN ref_geo.bib_areas_types bat ON la.id_type = bat.id_type
+JOIN gn_monitoring.cor_site_area csa ON csa.id_area = la.id_area
+WHERE bat.type_code = ANY (ARRAY['ZNIEFF1', 'ZPS', 'ZCS', 'SIC', 'RNCFS', 'RNR', 'RNN', 'ZC']::text[])
+GROUP BY id_base_site
+),
+info_sites AS
+(SELECT
+    s.id_base_site,
+    departement,
+    code_dep,
+    commune,
+    sites_proteges,
+    alt.altitude_min,
+    alt.altitude_max
+FROM gn_monitoring.t_base_sites s
+LEFT JOIN com USING (id_base_site)
+LEFT JOIN dep USING (id_base_site)
+LEFT JOIN zonages USING (id_base_site)
+LEFT JOIN LATERAL ref_geo.fct_get_altitude_intersection(s.geom_local) alt(altitude_min, altitude_max) ON TRUE)
 SELECT DISTINCT
+    -- identifiant unique
     o.uuid_observation,
+    -- Site et variables associées
     tsg.sites_group_name AS aire_etude,
     tsg.uuid_sites_group AS uuid_aire_etude,
     tsg.sites_group_description AS description_aire,
@@ -34,12 +71,12 @@ SELECT DISTINCT
     st_astext(s.geom) AS wkt,
     st_x(st_centroid(s.geom_local)) AS x_centroid_l93,
     st_y(st_centroid(s.geom_local)) AS y_centroid_l93,
-    alt.altitude_min,
-    alt.altitude_max,
-    dep.area_name AS departement,
-    dep.area_code AS code_dep,
-    com.area_name AS commune,
-    sp.sites_proteges AS sites_proteges,
+    i.altitude_min,
+    i.altitude_max,
+    i.departement AS departement,
+    i.code_dep AS code_dep,
+    i.commune AS commune,
+    i.sites_proteges AS sites_proteges,
     NULLIF(REPLACE((sc.data::json->'methode_prospection')::text,'"',''),'null') AS methode_prospection,
     NULLIF(REPLACE((sc.data::json->'type_materiaux')::text,'"',''),'null') AS type_materiaux,
     NULLIF(REPLACE((sc.data::json->'nb_plaques')::text,'"',''),'null') AS nb_plaques,
@@ -52,6 +89,7 @@ SELECT DISTINCT
     NULLIF(REPLACE((sc.data::json->'microhabitat_favorable')::text,'"',''),'null') AS microhab_favorable,
     NULLIF(REPLACE((sc.data::json->'frequentation_humaine')::text,'"',''),'null') AS frequentation_humaine,
     NULLIF(REPLACE((sc.data::json->'comment')::text,'"',''),'null') AS commentaire_transect,
+    -- Informations sur la visite
     v.id_dataset,
     d.dataset_name AS jeu_de_donnees,
     v.uuid_base_visit AS uuid_visite,
@@ -64,6 +102,7 @@ SELECT DISTINCT
     NULLIF(REPLACE((vc.data::json->'meteo')::text,'"',''),'null') AS meteo,
     NULLIF(REPLACE((vc.data::json->'vent')::text,'"',''),'null') AS vent,
     v.comments AS commentaire_visite,
+    -- Informations sur l'observation
     o.cd_nom,
     NULLIF(REPLACE((oc.data::json->'presence')::text,'"',''),'null') AS presence_reptile,
     t.lb_nom AS nom_latin,
@@ -76,77 +115,93 @@ SELECT DISTINCT
     NULLIF(REPLACE((oc.data::json->'stade_vie')::text,'"',''),'null') AS stade_vie,
     o.comments AS commentaire_obs
 FROM gn_monitoring.t_observations o
-LEFT JOIN gn_monitoring.t_observation_complements oc ON oc.id_observation = o.id_observation
-LEFT JOIN gn_monitoring.t_base_visits v ON o.id_base_visit = v.id_base_visit
-LEFT JOIN gn_monitoring.t_visit_complements vc ON v.id_base_visit = vc.id_base_visit
-LEFT JOIN gn_monitoring.t_base_sites s ON s.id_base_site = v.id_base_site
-LEFT JOIN gn_monitoring.t_site_complements sc ON sc.id_base_site = s.id_base_site
-LEFT JOIN gn_monitoring.t_sites_groups tsg ON sc.id_sites_group = tsg.id_sites_group
-LEFT JOIN gn_commons.t_modules m ON m.id_module = v.id_module
-LEFT JOIN taxonomie.taxref t ON t.cd_nom = o.cd_nom
-LEFT JOIN gn_monitoring.cor_site_area csa ON csa.id_base_site = s.id_base_site
-LEFT JOIN gn_meta.t_datasets d ON d.id_dataset = v.id_dataset
-LEFT JOIN ( SELECT la.area_name,
-            csa_1.id_base_site
-           FROM ref_geo.l_areas la
-             JOIN ref_geo.bib_areas_types bat ON la.id_type = bat.id_type
-             JOIN gn_monitoring.cor_site_area csa_1 ON csa_1.id_area = la.id_area
-          WHERE bat.type_code::text = 'COM'::text) com ON s.id_base_site = com.id_base_site
-LEFT JOIN ( SELECT la.area_name,
-            la.area_code,
-            csa_1.id_base_site
-           FROM ref_geo.l_areas la
-             JOIN ref_geo.bib_areas_types bat ON la.id_type = bat.id_type
-             JOIN gn_monitoring.cor_site_area csa_1 ON csa_1.id_area = la.id_area
-          WHERE bat.type_code::text = 'DEP'::text) dep ON s.id_base_site = dep.id_base_site
-LEFT JOIN  site_protege sp ON s.id_base_site = sp.id_base_site
-LEFT JOIN LATERAL ( SELECT array_agg(r.id_role) AS ids_observers,
-            string_agg(concat(r.nom_role, ' ', r.prenom_role), ' ; '::text) AS observers,
-            string_agg(DISTINCT org.nom_organisme::text, ', '::text) AS organismes_rattaches
-           FROM gn_monitoring.cor_visit_observer cvo
-             JOIN utilisateurs.t_roles r ON r.id_role = cvo.id_role
-             LEFT JOIN utilisateurs.bib_organismes org ON org.id_organisme = r.id_organisme
-          WHERE cvo.id_base_visit = v.id_base_visit) obs ON true
-LEFT JOIN LATERAL ref_geo.fct_get_altitude_intersection(s.geom_local) alt(altitude_min, altitude_max) ON true
-LEFT JOIN LATERAL ( SELECT ref_nomenclatures.get_nomenclature_label(json_array_elements(vc.data::json #> '{methode_de_prospection}'::text[])::text::integer, 'fr'::character varying) AS methodes) meth ON true
-WHERE m.module_code::text = 'popreptile'::TEXT;
+JOIN gn_monitoring.t_observation_complements oc USING (id_observation)
+JOIN gn_monitoring.t_base_visits v USING (id_base_visit)
+JOIN gn_monitoring.t_visit_complements vc USING (id_base_visit)
+JOIN gn_monitoring.t_base_sites s USING (id_base_site)
+JOIN gn_monitoring.t_site_complements sc USING (id_base_site)
+JOIN gn_monitoring.t_sites_groups tsg USING (id_sites_group)
+JOIN gn_commons.t_modules m ON m.id_module = v.id_module
+JOIN taxonomie.taxref t USING (cd_nom)
+LEFT JOIN gn_meta.t_datasets d USING (id_dataset)
+LEFT JOIN info_sites i USING (id_base_site)
+LEFT JOIN obs USING (id_base_visit)
+WHERE m.module_code::text = 'popreptile';
         
 
-------------------------------------------------finale --POPReptile analyses------------------------------------------
+--------------------------------------------------POPReptile analyses------------------------------------------
 -- View: gn_monitoring.v_export_popreptile_analyse
 DROP VIEW IF EXISTS gn_monitoring.v_export_popreptile_analyses;
 
 CREATE OR REPLACE VIEW gn_monitoring.v_export_popreptile_analyses AS 
 WITH observations AS (
-         SELECT o.id_base_visit,
-            count(DISTINCT t.cd_ref) AS diversite,
-            string_agg(DISTINCT t.lb_nom::text, ' ; '::text) AS taxons_latin,
-            string_agg(DISTINCT t.nom_vern::text, ' ; '::text) AS taxons_fr,
-            sum(NULLIF(REPLACE((oc.data::json->'nombre_compte')::text,'"',''),'null')::integer) + sum(NULLIF(REPLACE((oc.data::json->'nombre_estime_min')::text,'"',''),'null')::integer) AS count_min,
-            sum(NULLIF(REPLACE((oc.data::json->'nombre_compte')::text,'"',''),'null')::integer) + sum(NULLIF(REPLACE((oc.data::json->'nombre_estime_max')::text,'"',''),'null')::integer) AS count_max
-           FROM gn_monitoring.t_observations o
-             LEFT JOIN taxonomie.taxref t ON o.cd_nom = t.cd_nom
-             LEFT JOIN gn_monitoring.t_observation_complements oc ON oc.id_observation = o.id_observation
-          GROUP BY o.id_base_visit
-        ), 
-    site_protege AS (
-	SELECT 
-        csa_1.id_base_site,
-        string_agg(DISTINCT ((la.area_name::text || '('::text) || bat.type_code::text) || ')'::text, ', '::text) AS sites_proteges
-   FROM ref_geo.l_areas la
-   JOIN ref_geo.bib_areas_types bat ON la.id_type = bat.id_type
-   JOIN gn_monitoring.cor_site_area csa_1 ON csa_1.id_area = la.id_area
-   WHERE bat.type_code::text = ANY (ARRAY[
-   		'ZNIEFF1'::character varying, 
-   		'ZPS'::character varying, 
-   		'ZCS'::character varying, 
-   		'SIC'::character varying, 
-   		'RNCFS'::character varying, 
-   		'RNR'::character varying, 
-   		'RNN'::character varying, 
-   		'ZC'::character varying]::text[])
-   	GROUP BY csa_1.id_base_site)
- SELECT DISTINCT tsg.sites_group_name AS aire_etude,
+    SELECT
+        o.id_base_visit,
+        count(DISTINCT t.cd_ref) AS diversite,
+        string_agg(DISTINCT t.lb_nom::text, ' ; '::text) AS taxons_latin,
+        string_agg(DISTINCT t.nom_vern::text, ' ; '::text) AS taxons_fr,
+        sum(NULLIF(REPLACE((oc.data::json->'nombre_compte')::text,'"',''),'null')::integer) + sum(NULLIF(REPLACE((oc.data::json->'nombre_estime_min')::text,'"',''),'null')::integer) AS count_min,
+        sum(NULLIF(REPLACE((oc.data::json->'nombre_compte')::text,'"',''),'null')::integer) + sum(NULLIF(REPLACE((oc.data::json->'nombre_estime_max')::text,'"',''),'null')::integer) AS count_max
+    FROM gn_monitoring.t_observations o
+    LEFT JOIN taxonomie.taxref t ON o.cd_nom = t.cd_nom
+    LEFT JOIN gn_monitoring.t_observation_complements oc ON oc.id_observation = o.id_observation
+    GROUP BY o.id_base_visit
+),
+obs AS
+(SELECT
+    id_base_visit,
+    array_agg(r.id_role) AS ids_observers,
+    string_agg(concat(r.nom_role, ' ', r.prenom_role), ' ; ') AS observers,
+    string_agg(DISTINCT org.nom_organisme::text, ', ') AS organismes_rattaches
+FROM gn_monitoring.cor_visit_observer cvo
+JOIN utilisateurs.t_roles r USING (id_role)
+JOIN utilisateurs.bib_organismes org USING (id_organisme)
+GROUP BY id_base_visit),
+com AS
+(SELECT
+    csa.id_base_site,
+    la_com.area_name AS commune
+FROM gn_monitoring.cor_site_area csa
+JOIN ref_geo.l_areas la_com ON csa.id_area = la_com.id_area
+JOIN ref_geo.bib_areas_types bat_com ON bat_com.id_type = la_com.id_type
+WHERE bat_com.type_code = 'COM'
+),
+dep AS
+(SELECT
+    csa.id_base_site,
+    la_dep.area_name AS departement,
+    la_dep.area_code AS code_dep
+FROM gn_monitoring.cor_site_area csa
+JOIN ref_geo.l_areas la_dep ON csa.id_area = la_dep.id_area
+LEFT JOIN ref_geo.bib_areas_types bat_dep ON bat_dep.id_type = la_dep.id_type
+WHERE bat_dep.type_code = 'DEP'),
+zonages AS
+(SELECT
+    csa.id_base_site,
+    string_agg(DISTINCT ((la.area_name::text || '(') ||bat.type_code::text) || ')', ', ') AS sites_proteges
+FROM ref_geo.l_areas la
+JOIN ref_geo.bib_areas_types bat ON la.id_type = bat.id_type
+JOIN gn_monitoring.cor_site_area csa ON csa.id_area = la.id_area
+WHERE bat.type_code = ANY (ARRAY['ZNIEFF1', 'ZPS', 'ZCS', 'SIC', 'RNCFS', 'RNR', 'RNN', 'ZC']::text[])
+GROUP BY id_base_site
+),
+info_sites AS
+(SELECT
+    s.id_base_site,
+    departement,
+    code_dep,
+    commune,
+    sites_proteges,
+    alt.altitude_min,
+    alt.altitude_max
+FROM gn_monitoring.t_base_sites s
+LEFT JOIN com USING (id_base_site)
+LEFT JOIN dep USING (id_base_site)
+LEFT JOIN zonages USING (id_base_site)
+LEFT JOIN LATERAL ref_geo.fct_get_altitude_intersection(s.geom_local) alt(altitude_min, altitude_max) ON TRUE)
+ SELECT DISTINCT
+    -- Aire et site
+    tsg.sites_group_name AS aire_etude,
     tsg.uuid_sites_group AS uuid_aire_etude,
     tsg.sites_group_description AS description_aire,
     NULLIF(REPLACE((tsg.data::json->'habitat_principal')::text,'"',''),'null') AS habitat_principal_aire,
@@ -156,12 +211,12 @@ WITH observations AS (
     st_astext(s.geom) AS wkt,
     st_x(st_centroid(s.geom_local)) AS x_centroid_l93,
     st_y(st_centroid(s.geom_local)) AS y_centroid_l93,
-    alt.altitude_min,
-    alt.altitude_max,
-    dep.area_name AS departement,
-    dep.area_code AS code_dep,
-    com.area_name AS commune,
-    sp.sites_proteges AS sites_proteges,
+    i.altitude_min,
+    i.altitude_max,
+    i.departement AS departement,
+    i.code_dep AS code_dep,
+    i.commune AS commune,
+    i.sites_proteges AS sites_proteges,
     NULLIF(REPLACE((sc.data::json->'methode_prospection')::text,'"',''),'null') AS methode_prospection,
     NULLIF(REPLACE((sc.data::json->'type_materiaux')::text,'"',''),'null') AS type_materiaux,
     NULLIF(REPLACE((sc.data::json->'nb_plaques')::text,'"',''),'null') AS nb_plaques,
@@ -174,6 +229,7 @@ WITH observations AS (
     NULLIF(REPLACE((sc.data::json->'microhabitat_favorable')::text,'"',''),'null') AS microhab_favorable,
     NULLIF(REPLACE((sc.data::json->'frequentation_humaine')::text,'"',''),'null') AS frequentation_humaine,
     NULLIF(REPLACE((sc.data::json->'comment')::text,'"',''),'null') AS commentaire_transect,
+    -- Visite
     v.id_dataset,
     d.dataset_name AS jeu_de_donnees,
     v.uuid_base_visit AS uuid_visite,
@@ -186,46 +242,20 @@ WITH observations AS (
     NULLIF(REPLACE((vc.data::json->'meteo')::text,'"',''),'null') AS meteo,
     NULLIF(REPLACE((vc.data::json->'vent')::text,'"',''),'null') AS vent,
     v.comments AS commentaire_visite,
+    -- synthese observations
     observations.diversite::integer AS diversite,
     observations.taxons_latin,
     observations.taxons_fr,
     observations.count_min AS abondance_total_min,
     observations.count_max AS abondance_total_max
-   FROM gn_monitoring.t_base_visits v
-     LEFT JOIN gn_monitoring.t_visit_complements vc ON v.id_base_visit = vc.id_base_visit
-     LEFT JOIN gn_monitoring.t_base_sites s ON s.id_base_site = v.id_base_site
-     LEFT JOIN gn_monitoring.t_site_complements sc ON sc.id_base_site = s.id_base_site
-     LEFT JOIN gn_monitoring.t_sites_groups tsg ON sc.id_sites_group = tsg.id_sites_group
-     LEFT JOIN gn_commons.t_modules m ON m.id_module = v.id_module
-     LEFT JOIN gn_monitoring.cor_site_area csa ON csa.id_base_site = s.id_base_site
-     LEFT JOIN observations ON observations.id_base_visit = v.id_base_visit
-     LEFT JOIN gn_meta.t_datasets d ON d.id_dataset = v.id_dataset
-     LEFT JOIN ( SELECT la.area_name,
-            csa_1.id_base_site
-           FROM ref_geo.l_areas la
-             JOIN ref_geo.bib_areas_types bat ON la.id_type = bat.id_type
-             JOIN gn_monitoring.cor_site_area csa_1 ON csa_1.id_area = la.id_area
-          WHERE bat.type_code::text = 'COM'::text) com ON s.id_base_site = com.id_base_site
-     LEFT JOIN ( SELECT la.area_name,
-            la.area_code,
-            csa_1.id_base_site
-           FROM ref_geo.l_areas la
-             JOIN ref_geo.bib_areas_types bat ON la.id_type = bat.id_type
-             JOIN gn_monitoring.cor_site_area csa_1 ON csa_1.id_area = la.id_area
-          WHERE bat.type_code::text = 'DEP'::text) dep ON s.id_base_site = dep.id_base_site
-     LEFT JOIN site_protege sp ON s.id_base_site = sp.id_base_site
-	 LEFT JOIN LATERAL ( SELECT array_agg(r.id_role) AS ids_observers,
-            string_agg(concat(r.nom_role, ' ', r.prenom_role), ' ; '::text) AS observers,
-            string_agg(DISTINCT org.nom_organisme::text, ', '::text) AS organismes_rattaches
-           FROM gn_monitoring.cor_visit_observer cvo
-             JOIN utilisateurs.t_roles r ON r.id_role = cvo.id_role
-             LEFT JOIN utilisateurs.bib_organismes org ON org.id_organisme = r.id_organisme
-          WHERE cvo.id_base_visit = v.id_base_visit) obs ON true
-     LEFT JOIN LATERAL ref_geo.fct_get_altitude_intersection(s.geom_local) alt(altitude_min, altitude_max) ON true
-  WHERE m.module_code::text = 'popreptile'::TEXT;  
-
-
--------------------------------------------------------------------------------------------------------------------
--------------------------------------------------------------------------------------------------------------------
--------------------------------------------------------------------------------------------------------------------
--------------------------------------------------------------------------------------------------------------------
+FROM gn_monitoring.t_base_visits v
+JOIN gn_monitoring.t_visit_complements vc USING (id_base_visit)
+JOIN gn_monitoring.t_base_sites s USING (id_base_site)
+JOIN gn_monitoring.t_site_complements sc USING (id_base_site)
+JOIN gn_monitoring.t_sites_groups tsg USING (id_sites_group)
+JOIN gn_commons.t_modules m ON m.id_module = v.id_module
+LEFT JOIN observations USING (id_base_visit)
+LEFT JOIN gn_meta.t_datasets d ON d.id_dataset = v.id_dataset
+LEFT JOIN info_sites i USING (id_base_site)
+LEFT JOIN obs USING (id_base_visit)
+WHERE m.module_code::text = 'popreptile';
