@@ -57,7 +57,7 @@ LEFT JOIN com USING (id_base_site)
 LEFT JOIN dep USING (id_base_site)
 LEFT JOIN zonages USING (id_base_site)
 LEFT JOIN LATERAL ref_geo.fct_get_altitude_intersection(s.geom_local) alt(altitude_min, altitude_max) ON TRUE)
-SELECT DISTINCT
+SELECT
     -- identifiant unique
     o.uuid_observation,
     -- Site et variables associées
@@ -199,7 +199,7 @@ LEFT JOIN com USING (id_base_site)
 LEFT JOIN dep USING (id_base_site)
 LEFT JOIN zonages USING (id_base_site)
 LEFT JOIN LATERAL ref_geo.fct_get_altitude_intersection(s.geom_local) alt(altitude_min, altitude_max) ON TRUE)
- SELECT DISTINCT
+SELECT
     -- Aire et site
     tsg.sites_group_name AS aire_etude,
     tsg.uuid_sites_group AS uuid_aire_etude,
