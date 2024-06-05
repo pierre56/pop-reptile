@@ -2,7 +2,7 @@
 -------------------------------------------------final --POPReptile standard------------------------------------------
 -- View: gn_monitoring.v_export_popreptile_standard
 
-DROP  VIEW IF EXISTS gn_monitoring.v_export_popreptile_standard;
+DROP VIEW IF EXISTS gn_monitoring.v_export_popreptile_standard;
 
 CREATE OR REPLACE VIEW gn_monitoring.v_export_popreptile_standard AS 
 WITH obs AS
