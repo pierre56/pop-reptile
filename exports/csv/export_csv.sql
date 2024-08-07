@@ -4,7 +4,7 @@
 
 DROP VIEW IF EXISTS gn_monitoring.v_export_popreptile_standard;
 
-CREATE OR REPLACE VIEW gn_monitoring.v_export_popreptile_standard AS 
+CREATE OR REPLACE VIEW gn_monitoring.v_export_popreptile_standard AS
 WITH obs AS
 (SELECT
     id_base_visit,
@@ -127,13 +127,12 @@ LEFT JOIN gn_meta.t_datasets d USING (id_dataset)
 LEFT JOIN info_sites i USING (id_base_site)
 LEFT JOIN obs USING (id_base_visit)
 WHERE m.module_code::text = 'popreptile';
-        
 
 --------------------------------------------------POPReptile analyses------------------------------------------
 -- View: gn_monitoring.v_export_popreptile_analyse
 DROP VIEW IF EXISTS gn_monitoring.v_export_popreptile_analyses;
 
-CREATE OR REPLACE VIEW gn_monitoring.v_export_popreptile_analyses AS 
+CREATE OR REPLACE VIEW gn_monitoring.v_export_popreptile_analyses AS
 WITH observations AS (
     SELECT
         o.id_base_visit,
