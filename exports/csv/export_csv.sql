@@ -1,5 +1,4 @@
-
--------------------------------------------------final --POPReptile standard------------------------------------------
+---------------------------------------------------POPReptile standard------------------------------------------
 -- View: gn_monitoring.v_export_popreptile_standard
 
 DROP VIEW IF EXISTS gn_monitoring.v_export_popreptile_standard;
@@ -40,7 +39,7 @@ zonages AS
 FROM ref_geo.l_areas la
 JOIN ref_geo.bib_areas_types bat ON la.id_type = bat.id_type
 JOIN gn_monitoring.cor_site_area csa ON csa.id_area = la.id_area
-WHERE bat.type_code = ANY (ARRAY['ZNIEFF1', 'ZNIEFF2', 'ZPS', 'ZCS', 'SIC', 'RNCFS', 'RNR', 'RNN', 'ZC']::text[])
+WHERE bat.type_code = ANY (ARRAY['ZNIEFF1', 'ZNIEFF2', 'ZPS', 'ZCS', 'SIC', 'RNCFS', 'RNR', 'RNN', 'ZC']::text[]) -- A reprendre ultérieurement
 GROUP BY id_base_site
 ),
 info_sites AS
@@ -60,14 +59,14 @@ LEFT JOIN LATERAL ref_geo.fct_get_altitude_intersection(s.geom_local) alt(altitu
 SELECT
     -- identifiant unique
     o.uuid_observation,
-    -- Site et variables associées
-    tsg.sites_group_name AS aire_etude,
+    -- Aire et variables associées (groupe de sites)
+    REPLACE(tsg.sites_group_name, ' ', '_') AS aire_etude, -- Uniformisation des noms
     tsg.uuid_sites_group AS uuid_aire_etude,
     tsg.sites_group_description AS description_aire,
     NULLIF(REPLACE((tsg.data::json->'habitat_principal')::text,'"',''),'null') AS habitat_principal_aire,
-    NULLIF(REPLACE((tsg.data::json->'expertise')::text,'"',''),'null') AS expertise_operateur,
     tsg.comments AS commentaire_aire,
-    s.base_site_name AS nom_transect,
+    -- Transect et variables associées (site)
+    REPLACE(s.base_site_name, ' ', '_') AS nom_transect, -- Uniformisation transect
     st_astext(s.geom) AS wkt,
     st_x(st_centroid(s.geom_local)) AS x_centroid_l93,
     st_y(st_centroid(s.geom_local)) AS y_centroid_l93,
@@ -77,17 +76,7 @@ SELECT
     i.code_dep AS code_dep,
     i.commune AS commune,
     i.sites_proteges AS sites_proteges,
-    NULLIF(REPLACE((sc.data::json->'methode_prospection')::text,'"',''),'null') AS methode_prospection,
-    NULLIF(REPLACE((sc.data::json->'type_materiaux')::text,'"',''),'null') AS type_materiaux,
-    NULLIF(REPLACE((sc.data::json->'nb_plaques')::text,'"',''),'null') AS nb_plaques,
-    NULLIF(REPLACE((sc.data::json->'milieu_transect')::text,'"',''),'null') AS milieu_transect,
-    NULLIF(REPLACE((sc.data::json->'milieu_bordier')::text,'"',''),'null') AS milieu_bordier,
-    NULLIF(REPLACE((sc.data::json->'milieu_mosaique_vegetale')::text,'"',''),'null') AS milieu_mosaique,
-    NULLIF(REPLACE((sc.data::json->'milieu_homogene')::text,'"',''),'null') AS milieu_homogene,
-    NULLIF(REPLACE((sc.data::json->'milieu_anthropique')::text,'"',''),'null') AS milieu_anthropique,
-    NULLIF(REPLACE((sc.data::json->'milieu_transect_autre')::text,'"',''),'null') AS milieu_anthropique_autre,
-    NULLIF(REPLACE((sc.data::json->'microhabitat_favorable')::text,'"',''),'null') AS microhab_favorable,
-    NULLIF(REPLACE((sc.data::json->'frequentation_humaine')::text,'"',''),'null') AS frequentation_humaine,
+    NULLIF(REPLACE((sc.DATA::json->'milieu_transect')::TEXT,'"', ''), 'null') AS milieu_transect,
     NULLIF(REPLACE((sc.data::json->'comment')::text,'"',''),'null') AS commentaire_transect,
     -- Informations sur la visite
     v.id_dataset,
@@ -97,22 +86,21 @@ SELECT
     NULLIF(REPLACE((vc.data::json->'Heure_debut')::text,'"',''),'null') AS heure_debut,
     NULLIF(REPLACE((vc.data::json->'Heure_fin')::text,'"',''),'null') AS heure_fin,
     NULLIF(REPLACE((vc.data::json->'num_passage')::text,'"',''),'null') AS num_passage,
+    NULLIF(REPLACE((vc.data::json->'expertise')::text,'"',''),'null') AS expertise_operateur,
+    NULLIF(REPLACE((vc.data::json->'methode_prospection')::text,'"',''),'null') AS methode_prospection,
     obs.observers,
     obs.organismes_rattaches,
-    NULLIF(REPLACE((vc.data::json->'meteo')::text,'"',''),'null') AS meteo,
-    NULLIF(REPLACE((vc.data::json->'vent')::text,'"',''),'null') AS vent,
     v.comments AS commentaire_visite,
     -- Informations sur l'observation
     o.cd_nom,
     NULLIF(REPLACE((oc.data::json->'presence')::text,'"',''),'null') AS presence_reptile,
     t.lb_nom AS nom_latin,
     t.nom_vern AS nom_francais,
-    NULLIF(REPLACE((oc.data::json->'abondance')::text,'"',''),'null') AS abondance,
-    NULLIF(REPLACE((oc.data::json->'type_denombrement')::text,'"',''),'null') AS type_denbr,
-    NULLIF(REPLACE((oc.data::json->'nombre_compte')::text,'"',''),'null') AS nombre_compte,
-	NULLIF(REPLACE((oc.data::json->'nombre_estime_min')::text,'"',''),'null') AS nombre_estime_min,
-	NULLIF(REPLACE((oc.data::json->'nombre_estime_max')::text,'"',''),'null') AS nombre_estime_max,
-    NULLIF(REPLACE((oc.data::json->'stade_vie')::text,'"',''),'null') AS stade_vie,
+    ref_nomenclatures.get_nomenclature_label(NULLIF(json_extract_path(oc.data::json,'id_nomenclature_typ_denbr')::text, 'null')::integer, 'fr') AS type_denombrement,
+	NULLIF(REPLACE((oc.data::json->'count_min')::text,'"',''),'null') AS nombre_min,
+	NULLIF(REPLACE((oc.data::json->'count_max')::text,'"',''),'null') AS nombre_max,
+    ref_nomenclatures.get_nomenclature_label(NULLIF(json_extract_path(oc.data::json,'id_nomenclature_stade')::text,'null')::integer, 'fr') AS stade_vie,
+    ref_nomenclatures.get_nomenclature_label(NULLIF(json_extract_path(oc.data::json,'id_nomenclature_sex')::text,'null')::integer, 'fr') AS sexe,
     o.comments AS commentaire_obs
 FROM gn_monitoring.t_observations o
 JOIN gn_monitoring.t_observation_complements oc USING (id_observation)
@@ -136,11 +124,12 @@ CREATE OR REPLACE VIEW gn_monitoring.v_export_popreptile_analyses AS
 WITH observations AS (
     SELECT
         o.id_base_visit,
+        -- Attention, comptabilise les 'Squamata' mais il le faut, car potentiellement, on peut avoir vu une observation de Squamata sans le déterminer
         count(DISTINCT t.cd_ref) AS diversite,
         string_agg(DISTINCT t.lb_nom::text, ' ; '::text) AS taxons_latin,
         string_agg(DISTINCT t.nom_vern::text, ' ; '::text) AS taxons_fr,
-        sum(NULLIF(REPLACE((oc.data::json->'nombre_compte')::text,'"',''),'null')::integer) + sum(NULLIF(REPLACE((oc.data::json->'nombre_estime_min')::text,'"',''),'null')::integer) AS count_min,
-        sum(NULLIF(REPLACE((oc.data::json->'nombre_compte')::text,'"',''),'null')::integer) + sum(NULLIF(REPLACE((oc.data::json->'nombre_estime_max')::text,'"',''),'null')::integer) AS count_max
+        sum(NULLIF(REPLACE((oc.data::json->'count_min')::text,'"',''),'null')::integer) AS count_min,
+        sum(NULLIF(REPLACE((oc.data::json->'count_max')::text,'"',''),'null')::integer) AS count_max
     FROM gn_monitoring.t_observations o
     LEFT JOIN taxonomie.taxref t ON o.cd_nom = t.cd_nom
     LEFT JOIN gn_monitoring.t_observation_complements oc ON oc.id_observation = o.id_observation
@@ -200,13 +189,12 @@ LEFT JOIN zonages USING (id_base_site)
 LEFT JOIN LATERAL ref_geo.fct_get_altitude_intersection(s.geom_local) alt(altitude_min, altitude_max) ON TRUE)
 SELECT
     -- Aire et site
-    tsg.sites_group_name AS aire_etude,
+    REPLACE(tsg.sites_group_name, ' ', '_') AS aire_etude, -- Uniformisation des noms
     tsg.uuid_sites_group AS uuid_aire_etude,
     tsg.sites_group_description AS description_aire,
     NULLIF(REPLACE((tsg.data::json->'habitat_principal')::text,'"',''),'null') AS habitat_principal_aire,
-    NULLIF(REPLACE((tsg.data::json->'expertise')::text,'"',''),'null') AS expertise_operateur,
     tsg.comments AS commentaire_aire,
-    s.base_site_name AS nom_transect,
+    REPLACE(s.base_site_name, ' ', '_') AS nom_transect, -- Uniformisation transect
     st_astext(s.geom) AS wkt,
     st_x(st_centroid(s.geom_local)) AS x_centroid_l93,
     st_y(st_centroid(s.geom_local)) AS y_centroid_l93,
@@ -216,17 +204,7 @@ SELECT
     i.code_dep AS code_dep,
     i.commune AS commune,
     i.sites_proteges AS sites_proteges,
-    NULLIF(REPLACE((sc.data::json->'methode_prospection')::text,'"',''),'null') AS methode_prospection,
-    NULLIF(REPLACE((sc.data::json->'type_materiaux')::text,'"',''),'null') AS type_materiaux,
-    NULLIF(REPLACE((sc.data::json->'nb_plaques')::text,'"',''),'null') AS nb_plaques,
-    NULLIF(REPLACE((sc.data::json->'milieu_transect')::text,'"',''),'null') AS milieu_transect,
-    NULLIF(REPLACE((sc.data::json->'milieu_bordier')::text,'"',''),'null') AS milieu_bordier,
-    NULLIF(REPLACE((sc.data::json->'milieu_mosaique_vegetale')::text,'"',''),'null') AS milieu_mosaique,
-    NULLIF(REPLACE((sc.data::json->'milieu_homogene')::text,'"',''),'null') AS milieu_homogene,
-    NULLIF(REPLACE((sc.data::json->'milieu_anthropique')::text,'"',''),'null') AS milieu_anthropique,
-    NULLIF(REPLACE((sc.data::json->'milieu_transect_autre')::text,'"',''),'null') AS milieu_anthropique_autre,
-    NULLIF(REPLACE((sc.data::json->'microhabitat_favorable')::text,'"',''),'null') AS microhab_favorable,
-    NULLIF(REPLACE((sc.data::json->'frequentation_humaine')::text,'"',''),'null') AS frequentation_humaine,
+    NULLIF(REPLACE((sc.DATA::json->'milieu_transect')::TEXT,'"', ''), 'null') AS milieu_transect,
     NULLIF(REPLACE((sc.data::json->'comment')::text,'"',''),'null') AS commentaire_transect,
     -- Visite
     v.id_dataset,
@@ -236,10 +214,10 @@ SELECT
     NULLIF(REPLACE((vc.data::json->'Heure_debut')::text,'"',''),'null') AS heure_debut,
     NULLIF(REPLACE((vc.data::json->'Heure_fin')::text,'"',''),'null') AS heure_fin,
     NULLIF(REPLACE((vc.data::json->'num_passage')::text,'"',''),'null') AS num_passage,
+    NULLIF(REPLACE((vc.data::json->'expertise')::text,'"',''),'null') AS expertise_operateur,
+    NULLIF(REPLACE((vc.data::json->'methode_prospection')::text,'"',''),'null') AS methode_prospection,
     obs.observers,
     obs.organismes_rattaches,
-    NULLIF(REPLACE((vc.data::json->'meteo')::text,'"',''),'null') AS meteo,
-    NULLIF(REPLACE((vc.data::json->'vent')::text,'"',''),'null') AS vent,
     v.comments AS commentaire_visite,
     -- synthese observations
     observations.diversite::integer AS diversite,
