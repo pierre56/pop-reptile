@@ -27,6 +27,7 @@ AS WITH source AS (
     o.uuid_observation AS unique_id_sinp,
     v.uuid_base_visit AS unique_id_sinp_grp,
     (SELECT id_source FROM source) AS id_source,
+    o.id_observation,
     o.id_observation AS entity_source_pk_value,
     v.id_dataset,
     ref_nomenclatures.get_id_nomenclature('METH_OBS'::character varying, '0'::character varying) AS id_nomenclature_obs_meth, 
