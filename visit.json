@@ -37,8 +37,7 @@
       "definition": "Usuellement entre 1 et 6. Si plus de passages sont renseignés, une sélection sera opérée",
       "required": true,
       "min": 1,
-      "max":20,
-      "default": 1
+      "value": "({ meta}) => (meta.parents.site.properties.nb_visits + 1)"
     },
     "accessibility": {
       "type_widget": "radio",
